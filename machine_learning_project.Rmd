@@ -1,0 +1,139 @@
+---
+title: "machine learning"
+author: "Noelia Carrillo"
+date: "21 de noviembre de 2017"
+output: 
+  html_document: 
+    keep_md: yes
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## Introdcution
+
+Using devices such as Jawbone Up, Nike FuelBand, and Fitbit it is now possible to collect a large amount of data about personal activity relatively inexpensively. These type of devices are part of the quantified self movement – a group of enthusiasts who take measurements about themselves regularly to improve their health, to find patterns in their behavior, or because they are tech geeks. One thing that people regularly do is quantify how much of a particular activity they do, but they rarely quantify how well they do it. In this project, your goal will be to use data from accelerometers on the belt, forearm, arm, and dumbell of 6 participants. They were asked to perform barbell lifts correctly and incorrectly in 5 different ways.
+
+The goal of this project is to predict the manner in which they did the exercise. This is the “classe” variable in the training set. 
+
+```{r library, cache=TRUE, echo=FALSE, message=FALSE, warnings=FALSE}
+## load libraries
+library(ggplot2)
+library(caret)
+library(ElemStatLearn)
+library(randomForest)
+library(rpart)
+library(rpart.plot)
+library(parallel)
+library(doParallel)
+set.seed(12345)
+```
+
+## Load data
+
+```{r load, cache=TRUE}
+## load the training anda testing files
+setwd("~/Documents/Curros_Estudios/estadistica/coursera/machine_learning")
+training <- read.csv("pml-training.csv", sep = ",", header = TRUE, dec = ".", na.strings=c("NA","#DIV/0!",""))
+testing <- read.csv("pml-testing.csv", sep = ",", header = TRUE, dec = ".", na.strings=c("NA","#DIV/0!",""))
+
+## remove firt column
+training <- training[, -c(1)]
+testing <- testing[, -c(1)]
+
+```
+
+The training data set contains `r dim(training)[1]` observations and the testing data set `r dim(testing)[1]`. Training data set contains `r dim(training)[2]` variables.
+
+## Clean data
+
+```{r clean1, cache=TRUE}
+## summary of the training data
+str(training)
+```
+
+The training data contains a lot of NAs so we will remove all those variables.
+
+```{r clean2, cache=TRUE}
+## remove vars with one unique value
+zero_training <- nearZeroVar(training)
+training <- training[, -zero_training]
+
+## remove var with more than 60% missing values
+training2 <- training
+for(i in 1:length(training)){
+  if(sum(is.na(training[, i]))/dim(training)[1] > 0.6){
+    col_name <- names(training)[i]
+    training2 <- training2[, -which(colnames(training2)==col_name)]
+  }
+}
+training <- training2
+remove(training2)
+
+## remove same columns from testing data set
+clean_col_names <- colnames(training)
+clean_col_names <- clean_col_names[-length(clean_col_names)]
+testing <- testing[clean_col_names]
+
+## partion the training into two subsets; 70% for the training and 40% for the testing
+in_training <- createDataPartition(y=training$classe, p=0.7, list = FALSE)
+my_training <- training[in_training, ]
+my_testing <- training[-in_training, ]
+```
+
+After the cleaning process, the training and testing data set contain `r dim(my_training)[2]` variables. 
+
+## Model selection
+We run different models. We will consider a good model if accuracy is bigger than 99%.
+
+### Prediction with Decision Trees
+
+First, we fit a decision tree model and check its accuracy.
+
+```{r tree, cache=TRUE}
+## run the model
+mod_tree <- rpart(classe ~ ., data=my_training, method="class")
+rpart.plot(mod_tree)
+
+## predict
+pre_tree <- predict(mod_tree, my_testing, type = "class")
+confusionMatrix(pre_tree, my_testing$classe)
+
+```
+
+We can observe that quite a few values were not correctly predicted on the testing set. The accuracy for the Decision Tree model is `r round(confusionMatrix(pre_tree, my_testing$classe)$overall[1]*100, 2)`%.
+
+### Prediction with Random Forest
+In order to fit a random forest and improve processing time of the train() function, we use parallel processing capabilities of the parallel package. A 5 fold cross-validation resampling technique is used.
+
+```{r forest, cache=TRUE}
+## run the model
+cluster <- makeCluster(detectCores()-1)
+registerDoParallel(cluster)
+fit_control <- trainControl(method = "cv", number = 5, allowParallel = TRUE)
+mod_forest <- train(classe ~ ., data=my_training, method = "rf", trControl=fit_control)
+stopCluster(cluster)
+registerDoSEQ()
+
+## predict
+pre_forest <- predict(mod_forest, my_testing)
+confusionMatrix(pre_forest, my_testing$classe)
+accuracy_forest <- round(confusionMatrix(pre_forest, my_testing$classe)$overall[1]*100, 2)
+```
+
+The accuracy for the Random Forest model is `r accuracy_forest`%. The out-of-sample error can be found using the (1 - Testing Accurary): `r (100-accuracy_forest)`%. Only 5 values were wrongly predicted.
+
+## Prediction on Test Data
+
+Random Forests gave the bigger accuracy in the my_testing dataset, so we use this model in the giveng testing data set.
+
+```{r prediction, cache=TRUE}
+test_prediction <- predict(mod_forest, testing)
+test_prediction
+for(i in 1:length(test_prediction)){
+      filename = paste0("problem_id_",i,".txt")
+      write.table(test_prediction[i],file=filename,quote=FALSE,row.names=FALSE,col.names=FALSE)
+    }
+
+```

@@ -1,0 +1,11 @@
+base
+ggplot2
+lattice
+caret
+ElemStatLearn
+randomForest
+rpart
+rpart.plot
+foreach
+iterators
+doParallel
